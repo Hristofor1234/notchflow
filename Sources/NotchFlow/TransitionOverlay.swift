@@ -50,6 +50,40 @@ final class TransitionOverlay {
         return (window.occlusionState.contains(.visible), window.isOnActiveSpace, renderer.framesDrawn)
     }
 
+    /// Смена рабочего стола под заставкой. macOS на время анимации сдвига столов на мгновение
+    /// убирает окна, которые видны на всех столах, — заставка мигала и появлялась снова.
+    /// Поэтому заставка сначала успокаивается до ровного цвета, затем дисплей плавно уходит
+    /// в тот же цвет на уровне видеовыхода (это незаметно), стол меняется под ним, и дисплей
+    /// возвращается. Системная анимация через затемнение дисплея не видна.
+    /// Если затемнение недоступно, стол просто меняется под заставкой.
+    func whileMasked<T>(_ body: () async -> T) async -> (result: T, faded: Bool) {
+        guard window != nil, let renderer else { return (await body(), false) }
+        // Заставка медленно (≈0.7 с) стихает до ровного тёмного цвета…
+        renderer.calmTarget = 1
+        try? await Task.sleep(for: .milliseconds(700))
+
+        guard let fade = DisplayFade(color: renderer.solidColor) else {
+            let result = await body()
+            renderer.calmTarget = 0
+            return (result, false)
+        }
+        // …дисплей медленно уходит в тот же цвет…
+        guard await fade.animate(to: 1, duration: 0.7) else {
+            let result = await body()
+            renderer.calmTarget = 0
+            return (result, false)
+        }
+        // …при полном затемнении меняется стол (экран ровный, без мигания)…
+        let result = await body()
+        // …и дисплей так же медленно возвращается.
+        await fade.animate(to: 0, duration: 0.7)
+        fade.restore()
+        // Заставка снова переливается, и только потом открывается экран.
+        renderer.calmTarget = 0
+        try? await Task.sleep(for: .milliseconds(700))
+        return (result, true)
+    }
+
     func reveal() async {
         guard let window, let renderer else { return }
         await renderer.run(.reveal, duration: 0.85)
@@ -58,6 +92,71 @@ final class TransitionOverlay {
         self.renderer = nil
     }
 }
+
+/// Затемнение всех дисплеев в ровный цвет через таблицы гаммы. Действует на уровне видеовыхода,
+/// поэтому системные анимации (сдвиг рабочих столов) под ним не видны. CGDisplayFade в macOS 26
+/// не работает (ошибка 1006), таблицы гаммы — работают. При выходе процесса macOS сама
+/// возвращает исходные таблицы, так что экран не останется затемнённым.
+@MainActor
+final class DisplayFade {
+    private struct Table { let display: CGDirectDisplayID; let r, g, b: [CGGammaValue] }
+    private let tables: [Table]
+    private let color: SIMD3<Float>
+    /// 0 — обычная картинка, 1 — ровный цвет.
+    private var level: Float = 0
+
+    init?(color: SIMD3<Float>) {
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetOnlineDisplayList(count, &ids, &count)
+        tables = ids.prefix(Int(count)).compactMap { id in
+            let cap = CGDisplayGammaTableCapacity(id)
+            guard cap > 0 else { return nil }
+            var r = [CGGammaValue](repeating: 0, count: Int(cap)), g = r, b = r
+            var n: UInt32 = 0
+            guard CGGetDisplayTransferByTable(id, cap, &r, &g, &b, &n) == .success, n > 0 else { return nil }
+            return Table(display: id, r: Array(r.prefix(Int(n))), g: Array(g.prefix(Int(n))), b: Array(b.prefix(Int(n))))
+        }
+        guard !tables.isEmpty else { return nil }
+        self.color = color
+    }
+
+    /// Плавный (ease-in-out) переход уровня затемнения к `target`.
+    @discardableResult
+    func animate(to target: Float, duration: Double) async -> Bool {
+        let from = level, start = CACurrentMediaTime()
+        while true {
+            let t = Float(min(1, (CACurrentMediaTime() - start) / duration))
+            level = from + (target - from) * ease(t)
+            guard apply() else { return false }
+            if t >= 1 { return true }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+    }
+
+    func restore() {
+        CGDisplayRestoreColorSyncSettings()
+        level = 0
+    }
+
+    private func apply() -> Bool {
+        let c = color, k = level
+        for t in tables {
+            let r = t.r.map { $0 * (1 - k) + c.x * k }
+            let g = t.g.map { $0 * (1 - k) + c.y * k }
+            let b = t.b.map { $0 * (1 - k) + c.z * k }
+            guard CGSetDisplayTransferByTable(t.display, UInt32(r.count), r, g, b) == .success else {
+                restore()
+                return false
+            }
+        }
+        return true
+    }
+}
+
+/// Плавный вход и выход (smoothstep).
+private func ease(_ t: Float) -> Float { t * t * (3 - 2 * t) }
 
 @MainActor
 final class TransitionRenderer: NSObject, MTKViewDelegate {
@@ -74,12 +173,22 @@ final class TransitionRenderer: NSObject, MTKViewDelegate {
         var leisure: Int32
         var phase: Int32
         var intensity: Float
+        var calm: Float
     }
 
     let device: MTLDevice
     var effect: Int32 = 0
     var leisure: Int32 = 0
     var intensity: Float = 0.8
+    /// 0 — обычная заставка, 1 — ровный цвет `solidColor` (под затемнение дисплея).
+    var calmTarget: Float = 0
+    private var calm: Float = 0
+    private var lastDraw = CACurrentMediaTime()
+
+    /// Цвет «deep» из шейдера — в него переходит заставка и в него же затемняется дисплей.
+    var solidColor: SIMD3<Float> {
+        leisure != 0 ? SIMD3(0.05, 0.02, 0.12) : SIMD3(0.01, 0.03, 0.10)
+    }
 
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
@@ -145,6 +254,10 @@ final class TransitionRenderer: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         framesDrawn += 1
         let now = CACurrentMediaTime()
+        let dt = Float(now - lastDraw)
+        lastDraw = now
+        // Равномерно за ~0.7 с к calmTarget; в шейдере сглаживается smoothstep.
+        calm += max(-dt * 1.45, min(dt * 1.45, calmTarget - calm))
         let progress = phase == .hold ? 1 : Float(min(1, (now - phaseStart) / phaseDuration))
         guard let pass = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
@@ -159,7 +272,8 @@ final class TransitionRenderer: NSObject, MTKViewDelegate {
             effect: effect,
             leisure: leisure,
             phase: phase.rawValue,
-            intensity: intensity
+            intensity: intensity,
+            calm: calm
         )
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
@@ -184,7 +298,7 @@ private let shaderSource = """
 #include <metal_stdlib>
 using namespace metal;
 
-struct U { float2 resolution; float progress; float time; int effect; int leisure; int phase; float intensity; };
+struct U { float2 resolution; float progress; float time; int effect; int leisure; int phase; float intensity; float calm; };
 struct VOut { float4 position [[position]]; float2 uv; };
 
 vertex VOut transitionVertex(uint id [[vertex_id]]) {
@@ -233,6 +347,9 @@ fragment float4 transitionFragment(VOut in [[stage_in]], constant U& u [[buffer(
     color += glow * shine * 0.12 * u.intensity;
     float vignette = 1.0 - smoothstep(0.35, 0.9, length((uv - 0.5) * float2(aspect * 0.8, 1.0)));
     color *= mix(0.75, 1.0, vignette);
+    // Во время смены стола заставка становится ровным цветом deep — точно таким же,
+    // в какой уходит дисплей, поэтому переход к затемнению не виден.
+    if (u.phase == 1) color = mix(color, deep, smoothstep(0.0, 1.0, u.calm));
 
     float alpha = clamp(smoothstep(-0.02, 0.02, edge) + rim * 0.5 * u.intensity, 0.0, 1.0);
     return float4(color * alpha, alpha);

@@ -708,9 +708,17 @@ private struct TransitionTab: View {
                 SettingsSection(title: "Приложения") {
                     SettingsToggle(
                         title: "Закрывать приложения",
-                        detail: "Как ⌘Q: несохранённое не теряется",
+                        detail: "Сначала как ⌘Q",
                         isOn: $store.prefs.closeOnLeave
                     )
+                    if store.prefs.closeOnLeave {
+                        RowDivider()
+                        SettingsToggle(
+                            title: "Дожимать за 5 секунд",
+                            detail: "Не закрылось — принудительно; несохранённое пропадёт",
+                            isOn: $store.prefs.forceQuit
+                        )
+                    }
                     RowDivider()
                     SettingsToggle(
                         title: "Открывать приложения",

@@ -74,6 +74,8 @@ struct Preferences: Codable, Equatable {
     var currentMode: Mode?
     var apps: [ManagedApp] = []
     var closeOnLeave = true
+    /// Если приложение не закрылось за 5 с — завершить принудительно.
+    var forceQuit = true
     var launchOnEnter = true
     var switchDesktops = false
     var workDesktop = 1
@@ -99,6 +101,7 @@ struct Preferences: Codable, Equatable {
         currentMode = c.lossy(Mode.self, .currentMode) ?? d.currentMode
         apps = c.lossy([Lossy<ManagedApp>].self, .apps)?.compactMap(\.value) ?? d.apps
         closeOnLeave = c.lossy(Bool.self, .closeOnLeave) ?? d.closeOnLeave
+        forceQuit = c.lossy(Bool.self, .forceQuit) ?? d.forceQuit
         launchOnEnter = c.lossy(Bool.self, .launchOnEnter) ?? d.launchOnEnter
         switchDesktops = c.lossy(Bool.self, .switchDesktops) ?? d.switchDesktops
         workDesktop = c.lossy(Int.self, .workDesktop) ?? d.workDesktop

@@ -83,6 +83,83 @@ enum DebugSnapshot {
             }
             return true
         }
+        // Настоящая смена режима без приложений: заставка → стол 2 под затемнением → открытие,
+        // и обратно на стол 1. Пишет, сработало ли затемнение дисплея и сколько заняло.
+        // open -n -a NotchFlow --args --mask-test <файл>
+        if let i = args.firstIndex(of: "--mask-test"), i + 1 < args.count {
+            let path = args[i + 1]
+            Task {
+                var report: [String] = ["postEvents=\(SpaceSwitcher.canPostEvents)"]
+                for (desktop, mode) in [(2, Mode.leisure), (1, Mode.work)] {
+                    let overlay = TransitionOverlay()
+                    let start = Date()
+                    let covered = await overlay.cover(mode: mode, effect: .liquid, intensity: 0.8)
+                    let masked = await overlay.whileMasked {
+                        let issue = await SpaceSwitcher.switchTo(desktop: desktop)
+                        try? await Task.sleep(for: .milliseconds(400)) // как waitForQuiet в смене режима
+                        return issue
+                    }
+                    await overlay.reveal()
+                    report.append(String(format: "стол %d: заставка=%@ затемнение=%@ смена=%@ всего=%.2fс", desktop,
+                                         covered ? "да" : "нет", masked.faded ? "да" : "нет",
+                                         masked.result ?? "OK", Date().timeIntervalSince(start)))
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                try? (report.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+                exit(0)
+            }
+            return true
+        }
+        // Настоящие переключения с вашими настройками и приложениями: в другой режим и обратно.
+        // Настройки не сохраняются (копия в памяти). Журнал этапов — в <файл>.
+        // open -n -a NotchFlow --args --switch-test <файл>
+        if let i = args.firstIndex(of: "--switch-test"), i + 1 < args.count {
+            let path = args[i + 1]
+            let real = store.prefs
+            let testEngine = ModeEngine(store: Store(preview: real))
+            Task {
+                let start = real.currentMode ?? .work
+                var lines: [String] = []
+                for mode in [start.other, start] {
+                    await testEngine.switchForTest(mode)
+                    lines += ["== \(mode.title): \(testEngine.status)"] + testEngine.trace
+                    try? await Task.sleep(for: .seconds(1.5))
+                }
+                try? (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+                exit(0)
+            }
+            return true
+        }
+        // Быстрое переключение: в другой режим и через 1.5 с, не дожидаясь конца, обратно.
+        // В конце проверяет, что каждое приложение открыто или закрыто так, как велит итоговый режим.
+        // open -n -a NotchFlow --args --rapid-test <файл>
+        if let i = args.firstIndex(of: "--rapid-test"), i + 1 < args.count {
+            let path = args[i + 1]
+            let real = store.prefs
+            let testStore = Store(preview: real)
+            let testEngine = ModeEngine(store: testStore)
+            Task {
+                let start = real.currentMode ?? .work
+                testEngine.switchTo(start.other)
+                try? await Task.sleep(for: .seconds(1.5))
+                testEngine.switchTo(start)
+                while testEngine.isSwitching { try? await Task.sleep(for: .milliseconds(100)) }
+                try? await Task.sleep(for: .seconds(1))
+                let final = testStore.prefs.currentMode ?? start
+                var lines = ["итоговый режим: \(final.title) (ожидался \(start.title)); \(testEngine.status)"]
+                for app in real.apps where app.bundleID != "com.apple.finder" {
+                    let running = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).contains { !$0.isTerminated }
+                    let want = real.launchOnEnter && app.opens(in: final)
+                    let mustClose = real.closeOnLeave && !app.opens(in: final)
+                    let ok = want ? running : (mustClose ? !running : true)
+                    lines.append("\(ok ? "OK  " : "FAIL") \(app.name): \(running ? "открыто" : "закрыто")")
+                }
+                lines += ["журнал последнего переключения:"] + testEngine.trace
+                try? (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+                exit(0)
+            }
+            return true
+        }
         if args.contains("--selftest-reorder") {
             exit(ReorderState.selfTest() ? 0 : 1)
         }
@@ -99,7 +176,7 @@ enum DebugSnapshot {
             return true
         }
         if let unknown = args.dropFirst().first(where: { $0.hasPrefix("--") }) {
-            print("Неизвестный флаг \(unknown). Доступны: --snapshot <папка>, --preview-test, --selftest-prefs, --selftest-reorder, --click-test, --check-access <файл>, --space-test <файл>")
+            print("Неизвестный флаг \(unknown). Доступны: --snapshot <папка>, --preview-test, --selftest-prefs, --selftest-reorder, --click-test, --check-access <файл>, --space-test <файл>, --mask-test <файл>, --switch-test <файл>, --rapid-test <файл>")
             exit(2)
         }
         return false
