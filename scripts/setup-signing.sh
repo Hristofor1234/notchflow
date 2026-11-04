@@ -1,8 +1,8 @@
 #!/bin/zsh
 # Один раз создаёт постоянный сертификат подписи «NotchFlow Local Signing» в связке login.
 # С ним каждая сборка подписывается одинаково, и macOS не сбрасывает разрешения
-# («Универсальный доступ» и т. п.) при обновлении. Последний шаг попросит пароль Mac:
-# сертификату нужно разрешить подпись кода.
+# («Универсальный доступ» и т. п.) при обновлении. Пароль Mac спросится дважды:
+# разрешить ключ для codesign и доверять сертификату для подписи кода.
 set -euo pipefail
 
 NAME="NotchFlow Local Signing"
@@ -27,6 +27,11 @@ openssl pkcs12 -export -legacy -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
 
 # Ключ доступен только codesign; в связку попадают сертификат и закрытый ключ.
 security import "$TMP/id.p12" -k "$KEYCHAIN" -P "$PASS" -T /usr/bin/codesign
+
+# Без списка разделов macOS спрашивает пароль связки при КАЖДОЙ подписи (с macOS 10.12),
+# а сборка в фоне зависает в ожидании ответа. Пароль Mac спросится здесь один раз.
+echo "Сейчас macOS попросит пароль Mac, чтобы codesign мог брать ключ без вопросов…"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -l "<key>" "$KEYCHAIN" >/dev/null
 
 echo "Сейчас macOS попросит пароль, чтобы доверять сертификату для подписи кода…"
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
