@@ -22,6 +22,9 @@ enum BootSession {
         let previous = defaults.object(forKey: key) as? Int
         defaults.set(boot, forKey: key)
         guard let previous else { return false }
-        return previous != boot
+        // kern.boottime вычисляется как «сейчас минус аптайм» и сдвигается на секунды,
+        // когда macOS подводит часы, поэтому точное сравнение принимало обновление за перезагрузку.
+        // Настоящая перезагрузка сдвигает время загрузки как минимум на время выключения.
+        return abs(previous - boot) > 60
     }
 }
