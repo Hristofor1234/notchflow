@@ -6,6 +6,8 @@
 	<string>NotchFlow</string>
 	<key>CFBundleExecutable</key>
 	<string>NotchFlow</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.hristofor.notchflow</string>
 	<key>CFBundleName</key>
