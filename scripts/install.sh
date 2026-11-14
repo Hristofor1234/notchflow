@@ -29,7 +29,7 @@ fi
 
 NEW_DIR="$RELEASES/$(release_id "$NEW")"
 package_app "$NEW" "$NEW_DIR"
-tar -czf "$NEW_DIR/source.tar.gz" --exclude ./.build --exclude ./build --exclude ./releases --exclude .DS_Store .
+tar -czf "$NEW_DIR/source.tar.gz" --exclude ./.git --exclude ./.build --exclude ./build --exclude ./releases --exclude .DS_Store .
 checksum_dir "$NEW_DIR"
 
 deploy_app "$NEW"

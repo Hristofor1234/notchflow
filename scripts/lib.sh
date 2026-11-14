@@ -100,6 +100,11 @@ deploy_app() {
 
     prefs_before=$(prefs_export)
 
+    # Новая версия сначала копируется рядом: если копирование не удастся, прежняя останется на месте.
+    local staged="$DEST.new"
+    rm -rf "$staged"
+    ditto "$app" "$staged"
+
     if [[ -d "$DEST" ]]; then
         OUTGOING_DIR="$RELEASES/$(release_id "$DEST")"
         package_app "$DEST" "$OUTGOING_DIR"
@@ -112,7 +117,7 @@ deploy_app() {
         echo "Прежняя версия ${OUTGOING_DIR:t} сохранена в $OUTGOING_DIR, .app — в Корзине"
     fi
 
-    ditto "$app" "$DEST"
+    mv "$staged" "$DEST"
     "$LSREGISTER" -f "$DEST"
 
     if [[ -n "${BEFORE_LAUNCH:-}" ]]; then eval "$BEFORE_LAUNCH"; fi
