@@ -1,0 +1,25 @@
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      # Проект обещает сборку без Xcode — проверяем именно на Command Line Tools.
+      - name: Use Command Line Tools
+        run: |
+          if [ -d /Library/Developer/CommandLineTools ]; then
+            sudo xcode-select -s /Library/Developer/CommandLineTools
+          fi
+          swift --version
+      - run: swift build -c release --arch arm64
+      - name: Self-tests
+        run: |
+          BIN="$(swift build -c release --arch arm64 --show-bin-path)/NotchFlow"
+          "$BIN" --selftest-prefs
+          "$BIN" --selftest-reorder
+          "$BIN" --click-test
