@@ -15,6 +15,13 @@ enum Theme {
     static let columnWidth: CGFloat = 78
 }
 
+/// Состояние вкладки вместо @State: в SDK 27 @State стал макросом, плагина которого нет
+/// в Command Line Tools, а проект собирается без Xcode.
+final class Box<T>: ObservableObject {
+    @Published var value: T
+    init(_ value: T) { self.value = value }
+}
+
 struct IslandView: View {
     @ObservedObject var model: IslandModel
     @ObservedObject var store: Store
@@ -335,7 +342,7 @@ private struct AppsTab: View {
     @ObservedObject var model: IslandModel
     @ObservedObject var store: Store
     @ObservedObject var reorder: ReorderState
-    @State private var message: String?
+    @StateObject private var message = Box<String?>(nil)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -418,7 +425,7 @@ private struct AppsTab: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                Text(message ?? Self.countLabel(store.prefs.apps.count))
+                Text(message.value ?? Self.countLabel(store.prefs.apps.count))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
@@ -482,13 +489,13 @@ private struct AppsTab: View {
         do {
             let app = try AppPicker.entry(for: url, currentMode: store.prefs.currentMode, existing: store.prefs.apps)
             store.prefs.apps.append(app)
-            message = "Добавлено: \(app.name)"
+            message.value = "Добавлено: \(app.name)"
         } catch let error as AppPickerError {
-            message = error.message
+            message.value = error.message
         } catch {
-            message = error.localizedDescription
+            message.value = error.localizedDescription
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { message = nil }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { message.value = nil }
     }
 
     static func countLabel(_ n: Int) -> String {
@@ -675,7 +682,7 @@ private struct DesktopStepper: View {
 private struct TransitionTab: View {
     @ObservedObject var store: Store
     @ObservedObject var engine: ModeEngine
-    @State private var canSwitchSpaces = SpaceSwitcher.canPostEvents
+    @StateObject private var canSwitchSpaces = Box(SpaceSwitcher.canPostEvents)
 
     var body: some View {
         ScrollView {
@@ -740,10 +747,10 @@ private struct TransitionTab: View {
                         }
                         RowDivider()
                         SettingsRow(
-                            title: canSwitchSpaces ? "Доступ разрешён" : "Нужен «Универсальный доступ»",
+                            title: canSwitchSpaces.value ? "Доступ разрешён" : "Нужен «Универсальный доступ»",
                             detail: "И сочетания Control+N в Mission Control"
                         ) {
-                            if canSwitchSpaces {
+                            if canSwitchSpaces.value {
                                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                             } else {
                                 Chip(title: "Разрешить…", isSelected: true) { SpaceSwitcher.requestAccess() }
@@ -756,7 +763,7 @@ private struct TransitionTab: View {
         }
         .scrollIndicators(.never)
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            canSwitchSpaces = SpaceSwitcher.canPostEvents
+            canSwitchSpaces.value = SpaceSwitcher.canPostEvents
         }
     }
 }
@@ -765,14 +772,14 @@ private struct TransitionTab: View {
 
 private struct GeneralTab: View {
     @ObservedObject var store: Store
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var loginError: String?
+    @StateObject private var launchAtLogin = Box(SMAppService.mainApp.status == .enabled)
+    @StateObject private var loginError = Box<String?>(nil)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsSection(title: "Система") {
-                SettingsToggle(title: "Запуск при входе", detail: loginError, isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, enabled in setLaunchAtLogin(enabled) }
+                SettingsToggle(title: "Запуск при входе", detail: loginError.value, isOn: $launchAtLogin.value)
+                    .onChange(of: launchAtLogin.value) { _, enabled in setLaunchAtLogin(enabled) }
                 RowDivider()
                 SettingsToggle(
                     title: "Скрывать в полноэкранном режиме",
@@ -796,11 +803,11 @@ private struct GeneralTab: View {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            loginError = nil
+            loginError.value = nil
         } catch {
-            loginError = "Не удалось: \(error.localizedDescription)"
+            loginError.value = "Не удалось: \(error.localizedDescription)"
         }
         let actual = SMAppService.mainApp.status == .enabled
-        if actual != launchAtLogin { launchAtLogin = actual }
+        if actual != launchAtLogin.value { launchAtLogin.value = actual }
     }
 }

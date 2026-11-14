@@ -12,7 +12,8 @@ swift build -c release --arch arm64
 APP=.build/NotchFlow.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/arm64-apple-macosx/release/NotchFlow "$APP/Contents/MacOS/NotchFlow"
+# Путь спрашиваем у SwiftPM: в Swift 6.4 он сменился, а старый бинарник по прежнему пути остался.
+cp "$(swift build -c release --arch arm64 --show-bin-path)/NotchFlow" "$APP/Contents/MacOS/NotchFlow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M%S)" "$APP/Contents/Info.plist"
