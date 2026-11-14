@@ -176,7 +176,7 @@ enum DebugSnapshot {
             return true
         }
         if let unknown = args.dropFirst().first(where: { $0.hasPrefix("--") }) {
-            print("Неизвестный флаг \(unknown). Доступны: --snapshot <папка>, --preview-test, --selftest-prefs, --selftest-reorder, --click-test, --check-access <файл>, --space-test <файл>, --mask-test <файл>, --switch-test <файл>, --rapid-test <файл>")
+            print("Неизвестный флаг \(unknown). Доступны: --snapshot <папка>, --preview-test, --selftest-prefs, --selftest-reorder, --click-test, --check-access <файл>, --space-test <файл>, --mask-test <файл>, --overlay-space-test <файл>, --switch-test <файл>, --rapid-test <файл>")
             exit(2)
         }
         return false

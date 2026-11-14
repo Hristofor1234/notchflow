@@ -79,6 +79,11 @@ private struct NotchArea: View {
                     .transition(.opacity.combined(with: .offset(x: 12)))
                 }
             }
+            .accessibilityElement()
+            .accessibilityLabel("NotchFlow, \(mode.map { "режим «\($0.title)»" } ?? "режим не выбран")")
+            .accessibilityHint(model.isExpanded ? "Закрыть панель" : "Открыть панель")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { model.onToggle?() }
     }
 }
 
@@ -204,6 +209,7 @@ private struct PanelHeader: View {
                 }
                 .buttonStyle(.plain)
                 .help("Настройки")
+                .accessibilityLabel("Настройки")
 
                 Menu {
                     Button("Предпросмотр анимации") { engine.preview() }
@@ -215,6 +221,7 @@ private struct PanelHeader: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
+                .accessibilityLabel("Ещё")
                 .fixedSize()
                 .frame(width: 26, height: 26)
             }
@@ -328,6 +335,7 @@ struct PillToggleStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "включено" : "выключено")
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isOn)
     }
 }
@@ -563,6 +571,7 @@ private struct AppRow: View {
         Toggle(isOn: isOn) { EmptyView() }
             .toggleStyle(PillToggleStyle())
             .help("«\(mode.title)»: \(isOn.wrappedValue ? "открывать" : "закрывать")")
+            .accessibilityLabel("\(app.name), открывать в режиме «\(mode.title)»")
             .frame(width: Theme.columnWidth)
     }
 }
@@ -622,6 +631,7 @@ private struct SettingsToggle: View {
     var body: some View {
         SettingsRow(title: title, detail: detail) {
             Toggle(isOn: $isOn) { EmptyView() }.toggleStyle(PillToggleStyle())
+                .accessibilityLabel(title)
         }
     }
 }
@@ -656,17 +666,17 @@ private struct DesktopStepper: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            stepButton("minus") { value = max(1, value - 1) }
+            stepButton("minus", label: "Меньше") { value = max(1, value - 1) }
             Text("\(value)")
                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                 .frame(width: 20)
-            stepButton("plus") { value = min(9, value + 1) }
+            stepButton("plus", label: "Больше") { value = min(9, value + 1) }
         }
         .foregroundStyle(.white)
         .background(Capsule().fill(.white.opacity(0.08)))
     }
 
-    private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+    private func stepButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 9, weight: .bold))
@@ -674,6 +684,7 @@ private struct DesktopStepper: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 

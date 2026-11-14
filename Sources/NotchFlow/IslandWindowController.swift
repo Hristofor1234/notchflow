@@ -38,6 +38,8 @@ final class IslandModel: ObservableObject {
     @Published var notchRightX: CGFloat = 200
     /// Пока открыт системный диалог выбора приложения, панель не сворачивается.
     var isPresentingPicker = false
+    /// Открыть или закрыть панель — для VoiceOver: мышиное нажатие на чёлку обрабатывает окно.
+    var onToggle: (() -> Void)?
     /// Перетаскивание строк в списке приложений.
     let reorder = ReorderState()
 
@@ -95,6 +97,9 @@ final class IslandWindowController {
     private let model = IslandModel()
     private let store: Store
     private var timers: [Timer] = []
+    /// Частый опрос курсора; работает только пока чёлка выдвинута или панель открыта.
+    private var fastTimer: Timer?
+    private var mouseMonitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
     private var outsideTicks = 0
     private var hoverOutsideTicks = 0
@@ -121,6 +126,7 @@ final class IslandWindowController {
         hosting.sizingOptions = []
         panel.contentView = hosting
         panel.onMouseDown = { [weak self] event in self?.handleMouseDown(event) ?? false }
+        model.onToggle = { [weak self] in self?.toggle() }
 
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -132,10 +138,16 @@ final class IslandWindowController {
     func show() {
         layout()
         panel.orderFrontRegardless()
-        // 20 раз в секунду: наведение на чёлку должно отзываться сразу.
-        timers.append(Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pointerTick() }
-        })
+        // В покое курсор проверяется по движению мыши, а не по таймеру. Редкий таймер — страховка
+        // на случай, если macOS не доставит события мыши.
+        let idle: () -> Void = { [weak self] in MainActor.assumeIsolated { self?.idleTick() } }
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { _ in idle() }) {
+            mouseMonitors.append(monitor)
+        }
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { idle(); return $0 }) {
+            mouseMonitors.append(monitor)
+        }
+        timers.append(Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in idle() })
         timers.append(Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.fullscreenTick() }
         })
@@ -259,7 +271,26 @@ final class IslandWindowController {
         return frame(for: state, on: screen)
     }
 
+    private func idleTick() {
+        if fastTimer == nil { pointerTick() }
+    }
+
+    /// 20 раз в секунду, пока чёлка выдвинута или панель открыта: по этим тикам отсчитываются
+    /// задержки сворачивания. В покое таймер остановлен.
+    private func updateFastTimer() {
+        let needed = (model.isHovered || model.isExpanded) && !hiddenForFullscreen
+        if needed, fastTimer == nil {
+            fastTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pointerTick() }
+            }
+        } else if !needed, let timer = fastTimer {
+            timer.invalidate()
+            fastTimer = nil
+        }
+    }
+
     private func pointerTick() {
+        defer { updateFastTimer() }
         guard !hiddenForFullscreen else { return }
         let mouse = NSEvent.mouseLocation
 

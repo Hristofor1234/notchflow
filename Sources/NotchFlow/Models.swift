@@ -75,7 +75,8 @@ struct Preferences: Codable, Equatable {
     var apps: [ManagedApp] = []
     var closeOnLeave = true
     /// Если приложение не закрылось за 5 с — завершить принудительно.
-    var forceQuit = true
+    /// По умолчанию выключено: принудительное завершение теряет несохранённое.
+    var forceQuit = false
     var launchOnEnter = true
     var switchDesktops = false
     var workDesktop = 1

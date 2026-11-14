@@ -7,37 +7,40 @@ import MetalKit
 final class TransitionOverlay {
     /// Уровень окна заставки; замер (--overlay-space-test) сравнивает варианты.
     var level = NSWindow.Level.screenSaver
-    private var window: NSWindow?
+    /// По окну на каждый экран: затемнение гаммой действует на все дисплеи, заставка — тоже.
+    private var windows: [NSWindow] = []
     private var renderer: TransitionRenderer?
 
     /// Возвращает false, если Metal недоступен; тогда режим переключается без анимации.
     func cover(mode: Mode, effect: TransitionEffect, intensity: Double) async -> Bool {
-        guard let screen = NSScreen.main, let renderer = TransitionRenderer.make() else { return false }
+        let screens = NSScreen.screens
+        guard !screens.isEmpty, let renderer = TransitionRenderer.make() else { return false }
         renderer.leisure = mode == .leisure ? 1 : 0
         renderer.effect = effect.shaderIndex
         renderer.intensity = Float(intensity)
 
-        let view = MTKView(frame: CGRect(origin: .zero, size: screen.frame.size), device: renderer.device)
-        view.colorPixelFormat = .bgra8Unorm
-        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-        view.preferredFramesPerSecond = 120
-        view.wantsLayer = true
-        view.layer?.isOpaque = false
-        view.delegate = renderer
+        windows = screens.map { screen in
+            let view = MTKView(frame: CGRect(origin: .zero, size: screen.frame.size), device: renderer.device)
+            view.colorPixelFormat = .bgra8Unorm
+            view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+            view.preferredFramesPerSecond = 120
+            view.wantsLayer = true
+            view.layer?.isOpaque = false
+            view.delegate = renderer
 
-        let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.level = level
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = false
-        window.ignoresMouseEvents = true
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        window.contentView = view
-        window.setFrame(screen.frame, display: true)
-        window.orderFrontRegardless()
-
-        self.window = window
+            let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.level = level
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = false
+            window.ignoresMouseEvents = true
+            window.isReleasedWhenClosed = false
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+            window.contentView = view
+            window.setFrame(screen.frame, display: true)
+            window.orderFrontRegardless()
+            return window
+        }
         self.renderer = renderer
         await renderer.run(.cover, duration: 0.75)
         renderer.hold()
@@ -46,7 +49,7 @@ final class TransitionOverlay {
 
     /// Для измерений (--overlay-space-test): видна ли заставка, на активном ли столе, сколько кадров нарисовано.
     var diagnostics: (visible: Bool, onActiveSpace: Bool, frames: Int)? {
-        guard let window, let renderer else { return nil }
+        guard let window = windows.first, let renderer else { return nil }
         return (window.occlusionState.contains(.visible), window.isOnActiveSpace, renderer.framesDrawn)
     }
 
@@ -57,7 +60,7 @@ final class TransitionOverlay {
     /// возвращается. Системная анимация через затемнение дисплея не видна.
     /// Если затемнение недоступно, стол просто меняется под заставкой.
     func whileMasked<T>(_ body: () async -> T) async -> (result: T, faded: Bool) {
-        guard window != nil, let renderer else { return (await body(), false) }
+        guard !windows.isEmpty, let renderer else { return (await body(), false) }
         // Заставка медленно (≈0.7 с) стихает до ровного тёмного цвета…
         renderer.calmTarget = 1
         try? await Task.sleep(for: .milliseconds(700))
@@ -85,10 +88,10 @@ final class TransitionOverlay {
     }
 
     func reveal() async {
-        guard let window, let renderer else { return }
+        guard !windows.isEmpty, let renderer else { return }
         await renderer.run(.reveal, duration: 0.85)
-        window.orderOut(nil)
-        self.window = nil
+        windows.forEach { $0.orderOut(nil) }
+        windows = []
         self.renderer = nil
     }
 }

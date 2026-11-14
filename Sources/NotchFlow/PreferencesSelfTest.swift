@@ -20,6 +20,7 @@ enum PreferencesSelfTest {
             ManagedApp(bundleID: "a.two", name: "Two", path: "/Applications/Two.app", openInWork: false, openInLeisure: true),
         ]
         custom.closeOnLeave = false
+        custom.forceQuit = true
         custom.launchOnEnter = false
         custom.switchDesktops = true
         custom.workDesktop = 3
