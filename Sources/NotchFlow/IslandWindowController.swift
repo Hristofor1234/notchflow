@@ -131,8 +131,21 @@ final class IslandWindowController {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.layout() }
+            MainActor.assumeIsolated { self?.reshow() }
         })
+        // Закрытая крышка отключает встроенный дисплей, и macOS снимает окно с экрана;
+        // само оно не возвращается — выводим заново после пробуждения.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reshow() }
+            })
+        }
+    }
+
+    private func reshow() {
+        layout()
+        if !hiddenForFullscreen { panel.orderFrontRegardless() }
     }
 
     func show() {
